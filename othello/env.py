@@ -22,7 +22,9 @@ import atari_py
 import gym
 from seed_rl.atari import atari_preprocessing
 from seed_rl.common import common_flags  
-
+import sys
+sys.path.append("..")
+from teacher_student_env import PPOStudentEnv
 
 FLAGS = flags.FLAGS
 
@@ -40,20 +42,8 @@ flags.DEFINE_boolean('sticky_actions', False,
 
 
 def create_environment(task, config):  
-  logging.info('Creating environment: %s', config.game)
-
-
-  game_version = 'v0' if config.sticky_actions else 'v4'
-  full_game_name = '{}NoFrameskip-{}'.format(config.game, game_version)
-  env = gym.make(full_game_name, full_action_space=True)
-  env.seed(task)
-
-  if not isinstance(env, gym.wrappers.TimeLimit):
-    raise ValueError('We expected gym.make to wrap the env with TimeLimit. '
-                     'Got {}.'.format(type(env)))
-  # Change TimeLimit wrapper to 108,000 steps (30 min) as default in the
-  # litterature instead of OpenAI Gym's default of 100,000 steps.
-  env = gym.wrappers.TimeLimit(env.env, max_episode_steps=108000)
+  # logging.info('Creating environment: %s', config.game)
+  
   return atari_preprocessing.AtariPreprocessing(
       env,
       frame_skip=config.num_action_repeats,

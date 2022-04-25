@@ -40,27 +40,36 @@ from seed_rl.common import common_flags
 from seed_rl.common import utils
 import tensorflow as tf
 
+physical_devices = tf.config.list_physical_devices('GPU')
+if len(physical_devices) > 0:
+    for device in physical_devices:
+        tf.config.experimental.set_memory_growth(device, True)
+        print('{} memory growth: {}'.format(device, tf.config.experimental.get_memory_growth(device)))
+else:
+    print("Not enough GPU hardware devices available")
+
+
 flags.DEFINE_integer('save_checkpoint_secs', 1800,
                      'Checkpoint save period in seconds.')
-flags.DEFINE_integer('total_environment_frames', int(1e9),
+flags.DEFINE_integer('total_environment_frames', int(50e9),
                      'Total environment frames to train for.')
 flags.DEFINE_integer('batch_size', 64, 'Batch size for training.')
-flags.DEFINE_float('replay_ratio', 1.5,
+flags.DEFINE_float('replay_ratio', 0.75,
                    'Average number of times each observation is replayed and '
                    'used for training. '
                    'The default of 1.5 corresponds to an interpretation of the '
                    'R2D2 paper using the end of section 2.3.')
 flags.DEFINE_integer('inference_batch_size', -1,
                      'Batch size for inference, -1 for auto-tune.')
-flags.DEFINE_integer('unroll_length', 100, 'Unroll length in agent steps.')
+flags.DEFINE_integer('unroll_length', 80, 'Unroll length in agent steps.')
 flags.DEFINE_integer('num_training_tpus', 1, 'Number of TPUs for training.')
 flags.DEFINE_integer('update_target_every_n_step',
                      2500,
                      'Update the target network at this frequency (expressed '
                      'in number of training steps)')
-flags.DEFINE_integer('replay_buffer_size', 100,
+flags.DEFINE_integer('replay_buffer_size', 100000,
                      'Size of the replay buffer (in number of unrolls stored).')
-flags.DEFINE_integer('replay_buffer_min_size', 10,
+flags.DEFINE_integer('replay_buffer_min_size', 5000,
                      'Learning only starts when there is at least this number '
                      'of unrolls in the replay buffer')
 flags.DEFINE_float('priority_exponent', 0.9,
@@ -78,7 +87,7 @@ flags.DEFINE_float('importance_sampling_exponent', 0.6,
                    'Exponent used when computing the importance sampling '
                    'correction. 0 means no importance sampling correction. '
                    '1 means full importance sampling correction.')
-flags.DEFINE_float('clip_norm', 40, 'We clip gradient norm to this value.')
+flags.DEFINE_float('clip_norm', 80, 'We clip gradient norm to this value.')
 flags.DEFINE_float('value_function_rescaling_epsilon', 1e-3,
                    'Epsilon used for value function rescaling.')
 flags.DEFINE_integer('n_steps', 5,
@@ -477,7 +486,7 @@ def validate_config():
           FLAGS.num_envs, FLAGS.num_eval_envs))
 
 
-def learner_loop(create_env_fn, create_agent_fn, create_optimizer_fn):
+def learner_loop(create_env_fn, create_agent_fn, create_optimizer_fn, config=None):
   """Main learner loop.
 
   Args:
@@ -500,7 +509,10 @@ def learner_loop(create_env_fn, create_agent_fn, create_optimizer_fn):
   validate_config()
   settings = utils.init_learner(FLAGS.num_training_tpus)
   strategy, inference_devices, training_strategy, encode, decode = settings
-  env = create_env_fn(0, FLAGS)
+  if not config:
+    env = create_env_fn(0, FLAGS)
+  else:
+    env = create_env_fn(0, config)
   env_output_specs = utils.EnvOutput(
       tf.TensorSpec([], tf.float32, 'reward'),
       tf.TensorSpec([], tf.bool, 'done'),
@@ -864,6 +876,7 @@ def learner_loop(create_env_fn, create_agent_fn, create_optimizer_fn):
 
       def log(num_env_frames):
         """Logs environment summaries."""
+        # print('### logging')
         summary_writer.set_as_default()
         tf.summary.experimental.set_step(num_env_frames)
         episode_info = info_queue.dequeue_many(info_queue.size())
@@ -877,6 +890,9 @@ def learner_loop(create_env_fn, create_agent_fn, create_optimizer_fn):
           if not is_training:
             tf.summary.scalar('eval/episode_return', r)
             tf.summary.scalar('eval/episode_frames', n)
+          else:
+            tf.summary.scalar('train/episode_return', r)
+            tf.summary.scalar('train/episode_frames', n)
       log_future.result()  # Raise exception if any occurred in logging.
       log_future = executor.submit(log, num_env_frames)
 

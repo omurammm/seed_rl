@@ -57,12 +57,15 @@ NUM_ACTORS=$1
 ENV_BATCH_SIZE=$2
 NUM_ENVS=$(($NUM_ACTORS*$ENV_BATCH_SIZE))
 
+PRE_COMMAND='source ~/.bashrc ; conda activate seedrl ; export PYTHONPATH="$(dirname '"$PWD"')":$PYTHONPATH'
+
 tmux new-window -d -n learner
 # COMMAND='rm /tmp/agent -Rf; '"${LEARNER_BINARY}"' --logtostderr --pdb_post_mortem '"$@"' --num_envs='"${NUM_ENVS}"' --env_batch_size='"${ENV_BATCH_SIZE}"''
 COMMAND='python atari/r2d2_main.py --run_mode=learner --logtostderr --num_envs='"${NUM_ENVS}"' --env_batch_size='"${ENV_BATCH_SIZE}"''
 
 
 echo $COMMAND
+tmux send-keys -t "learner" "$PRE_COMMAND" ENTER
 tmux send-keys -t "learner" "$COMMAND" ENTER
 
 for ((id=0; id<$NUM_ACTORS; id++)); do
@@ -70,6 +73,7 @@ for ((id=0; id<$NUM_ACTORS; id++)); do
     export CUDA_VISIBLE_DEVICES='0,1'
     # COMMAND=''"${ACTOR_BINARY}"' --logtostderr --pdb_post_mortem '"$@"' --num_envs='"${NUM_ENVS}"' --task='"${id}"' --env_batch_size='"${ENV_BATCH_SIZE}"''
     COMMAND='python atari/r2d2_main.py --run_mode=actor --logtostderr --num_envs='${NUM_ENVS}' --task='${id}' --env_batch_size='${ENV_BATCH_SIZE}''
+    tmux send-keys -t "actor_${id}" "$PRE_COMMAND" ENTER
     tmux send-keys -t "actor_${id}" "$COMMAND" ENTER
 done
 

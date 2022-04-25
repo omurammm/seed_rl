@@ -18,7 +18,7 @@
 
 from absl import flags
 
-flags.DEFINE_string('logdir', '/tmp/agent', 'TensorFlow log directory.')
+flags.DEFINE_string('logdir', './log/breakout_eval', 'TensorFlow log directory.')
 flags.DEFINE_alias('job-dir', 'logdir')
 flags.DEFINE_string('server_address', 'localhost:8686', 'Server address.',
                     allow_hide_cpp=True)
@@ -31,7 +31,7 @@ flags.DEFINE_enum(
     'play. A learner performs policy inference for batches of observations '
     'coming from multiple actors, and use the generated trajectories to learn.')
 
-flags.DEFINE_integer('num_eval_envs', 0,
+flags.DEFINE_integer('num_eval_envs', 1,
                      'Number of environments that will be used for eval '
                      ' (for agents that support eval environments).')
 flags.DEFINE_integer(
