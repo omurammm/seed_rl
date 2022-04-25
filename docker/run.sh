@@ -13,67 +13,57 @@
 # limitations under the License.
 
 
-# die () {
-#     echo >&2 "$@"
-#     exit 1
-# }
+die () {
+    echo >&2 "$@"
+    exit 1
+}
 
-# DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-# cd $DIR
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+cd $DIR
 
-# ENVIRONMENT=$1
-# AGENT=$2
-# NUM_ACTORS=$3
-# ENV_BATCH_SIZE=$4
-# shift 4
+ENVIRONMENT=$1
+AGENT=$2
+NUM_ACTORS=$3
+ENV_BATCH_SIZE=$4
+shift 4
 
-# export PYTHONPATH=$PYTHONPATH:/
+export PYTHONPATH=$PYTHONPATH:/
 
-# ACTOR_BINARY="CUDA_VISIBLE_DEVICES='' python3 ../${ENVIRONMENT}/${AGENT}_main.py --run_mode=actor";
-# LEARNER_BINARY="python3 ../${ENVIRONMENT}/${AGENT}_main.py --run_mode=learner";
-# DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-# NUM_ENVS=$(($NUM_ACTORS*$ENV_BATCH_SIZE))
+ACTOR_BINARY="CUDA_VISIBLE_DEVICES='' python3 ../${ENVIRONMENT}/${AGENT}_main.py --run_mode=actor";
+LEARNER_BINARY="python3 ../${ENVIRONMENT}/${AGENT}_main.py --run_mode=learner";
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+NUM_ENVS=$(($NUM_ACTORS*$ENV_BATCH_SIZE))
 
 
 tmux new-session -d -t seed_rl
-# mkdir -p /tmp/seed_rl
-# cat >/tmp/seed_rl/instructions <<EOF
-# Welcome to the SEED local training of ${ENVIRONMENT} with ${AGENT}.
-# SEED uses tmux for easy navigation between different tasks involved
-# in the training process. To switch to a specific task, press CTRL+b, [tab id].
-# You can stop training at any time by executing 'stop_seed'
-# EOF
-# tmux send-keys "alias stop_seed='/seed_rl/stop_local.sh seed_rl'" ENTER
-# tmux send-keys clear
-# tmux send-keys KPEnter
-# tmux send-keys "cat /tmp/seed_rl/instructions"
-# tmux send-keys KPEnter
-# tmux send-keys "python3 check_gpu.py 2> /dev/null"
-# tmux send-keys KPEnter
-# tmux send-keys "stop_seed"
-
-
-NUM_ACTORS=$1
-ENV_BATCH_SIZE=$2
-NUM_ENVS=$(($NUM_ACTORS*$ENV_BATCH_SIZE))
-
+mkdir -p /tmp/seed_rl
+cat >/tmp/seed_rl/instructions <<EOF
+Welcome to the SEED local training of ${ENVIRONMENT} with ${AGENT}.
+SEED uses tmux for easy navigation between different tasks involved
+in the training process. To switch to a specific task, press CTRL+b, [tab id].
+You can stop training at any time by executing 'stop_seed'
+EOF
+tmux send-keys "alias stop_seed='/seed_rl/stop_local.sh seed_rl'" ENTER
+tmux send-keys clear
+tmux send-keys KPEnter
+tmux send-keys "cat /tmp/seed_rl/instructions"
+tmux send-keys KPEnter
+tmux send-keys "python3 check_gpu.py 2> /dev/null"
+tmux send-keys KPEnter
+tmux send-keys "stop_seed"
 tmux new-window -d -n learner
-# COMMAND='rm /tmp/agent -Rf; '"${LEARNER_BINARY}"' --logtostderr --pdb_post_mortem '"$@"' --num_envs='"${NUM_ENVS}"' --env_batch_size='"${ENV_BATCH_SIZE}"''
-COMMAND='python atari/r2d2_main.py --run_mode=learner --logtostderr --num_envs='"${NUM_ENVS}"' --env_batch_size='"${ENV_BATCH_SIZE}"''
 
-
+COMMAND='rm /tmp/agent -Rf; '"${LEARNER_BINARY}"' --logtostderr --pdb_post_mortem '"$@"' --num_envs='"${NUM_ENVS}"' --env_batch_size='"${ENV_BATCH_SIZE}"''
 echo $COMMAND
 tmux send-keys -t "learner" "$COMMAND" ENTER
 
 for ((id=0; id<$NUM_ACTORS; id++)); do
     tmux new-window -d -n "actor_${id}"
-    export CUDA_VISIBLE_DEVICES='0,1'
-    # COMMAND=''"${ACTOR_BINARY}"' --logtostderr --pdb_post_mortem '"$@"' --num_envs='"${NUM_ENVS}"' --task='"${id}"' --env_batch_size='"${ENV_BATCH_SIZE}"''
-    COMMAND='python atari/r2d2_main.py --run_mode=actor --logtostderr --num_envs='${NUM_ENVS}' --task='${id}' --env_batch_size='${ENV_BATCH_SIZE}''
+    COMMAND=''"${ACTOR_BINARY}"' --logtostderr --pdb_post_mortem '"$@"' --num_envs='"${NUM_ENVS}"' --task='"${id}"' --env_batch_size='"${ENV_BATCH_SIZE}"''
     tmux send-keys -t "actor_${id}" "$COMMAND" ENTER
 done
 
-# tmux new-window -d -n tensorboard
-# tmux send-keys -t "tensorboard" "tensorboard --logdir /tmp/agent/ --bind_all" ENTER
+tmux new-window -d -n tensorboard
+tmux send-keys -t "tensorboard" "tensorboard --logdir /tmp/agent/ --bind_all" ENTER
 
 tmux attach -t seed_rl
