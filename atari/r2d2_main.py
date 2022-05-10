@@ -36,7 +36,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_float('learning_rate', 1e-4, 'Learning rate.')
 flags.DEFINE_float('adam_epsilon', 1e-3, 'Adam epsilon.')
 
-flags.DEFINE_integer('stack_size', 4, 'Number of frames to stack.')
+flags.DEFINE_integer('stack_size', 1, 'Number of frames to stack.')
 
 
 def create_agent(env_output_specs, num_actions):

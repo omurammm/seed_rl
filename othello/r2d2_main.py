@@ -18,13 +18,15 @@
 Actor and learner are in the same binary so that all flags are shared.
 """
 
+# import os
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 from absl import app
 from absl import flags
-from seed_rl.agents.r2d2 import learner
+from seed_rl.agents.r2d2 import learner_parametric_action
 from seed_rl.othello import env
 from seed_rl.othello import networks
-from seed_rl.common import actor
+from seed_rl.common import actor_parametric_action
 from seed_rl.common import common_flags  
 import tensorflow as tf
 
@@ -39,9 +41,10 @@ FLAGS = flags.FLAGS
 flags.DEFINE_float('learning_rate', 1e-4, 'Learning rate.')
 flags.DEFINE_float('adam_epsilon', 1e-3, 'Adam epsilon.')
 
-flags.DEFINE_integer('stack_size', 0, 'Number of frames to stack.')
+flags.DEFINE_integer('stack_size', 1, 'Number of frames to stack.')
 
 flags.DEFINE_string('name', 'test', 'Name of log dir')
+
 
 
 def create_agent(env_output_specs, num_actions):
@@ -64,10 +67,12 @@ def create_environment(task, config):
 
 
 def main(argv):
+  # export PYTHONPATH=$(dirname "$PWD"):$PYTHONPATH
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
   config = arrange_config(FLAGS.name)
+  config['state_as_dict'] = False
   FLAGS.logdir = "./log/" + FLAGS.name
 
   devices = assign_device(config['devices'], FLAGS.num_envs)
@@ -76,10 +81,13 @@ def main(argv):
   else:
     config['device'] = devices[FLAGS.task]
 
+  # config['teacher_turn'] = -1
+
+
   if FLAGS.run_mode == 'actor':
-    actor.actor_loop(create_environment, config=config)
+    actor_parametric_action.actor_loop(create_environment, config=config)
   elif FLAGS.run_mode == 'learner':
-    learner.learner_loop(create_environment,
+    learner_parametric_action.learner_loop(create_environment,
                          create_agent,
                          create_optimizer,
                          config=config

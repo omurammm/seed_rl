@@ -27,6 +27,7 @@ from seed_rl.common import profiling
 from seed_rl.common import utils
 import tensorflow as tf
 
+
 physical_devices = tf.config.list_physical_devices('GPU')
 if len(physical_devices) > 0:
     for device in physical_devices:
@@ -113,7 +114,9 @@ def actor_loop(create_env_fn, config=None, log_period=1):
           env_output = utils.EnvOutput(reward, done, observation,
                                        abandoned, episode_step)
           with elapsed_inference_s_timer:
+            # print(env_output.observation[:, 3])
             action = client.inference(env_id, run_id, env_output, raw_reward)
+            # print(action)
           with timer_cls('actor/elapsed_env_step_s', 1000):
             observation, reward, done, info = batched_env.step(action.numpy())
           if is_rendering_enabled:
@@ -188,6 +191,8 @@ def actor_loop(create_env_fn, config=None, log_period=1):
 
           actor_step += 1
       except (tf.errors.UnavailableError, tf.errors.CancelledError):
+        import traceback
+        traceback.print_exc()
         logging.info('Inference call failed. This is normal at the end of '
                      'training.')
         batched_env.close()

@@ -18,6 +18,7 @@
 import collections
 from seed_rl.common import utils
 import tensorflow as tf
+from util import tf_possible_actions_2d_to_1d_onehot
 
 AgentOutput = collections.namedtuple('AgentOutput', 'action q_values')
 AgentState = collections.namedtuple(
@@ -231,12 +232,12 @@ class DuelingLSTMDQNNet(tf.Module):
     super(DuelingLSTMDQNNet, self).__init__(name='dueling_lstm_dqn_net')
     self._num_actions = num_actions
     self._body = tf.keras.Sequential([
-        tf.keras.layers.Conv2D(32, [8, 8], 4,
-                               padding='valid', activation='relu'),
-        tf.keras.layers.Conv2D(64, [4, 4], 2,
-                               padding='valid', activation='relu'),
+        tf.keras.layers.Conv2D(32, [3, 3], 1,
+                               padding='same', activation='relu'),
         tf.keras.layers.Conv2D(64, [3, 3], 1,
-                               padding='valid', activation='relu'),
+                               padding='same', activation='relu'),
+        tf.keras.layers.Conv2D(64, [3, 3], 1,
+                               padding='same', activation='relu'),
         tf.keras.layers.Flatten(),
         tf.keras.layers.Dense(512, activation='relu'),
     ])
@@ -262,7 +263,8 @@ class DuelingLSTMDQNNet(tf.Module):
 
   def _torso(self, prev_action, env_output):
     # [batch_size, output_units]
-    conv_out = self._body(env_output.observation)
+
+    conv_out = self._body(env_output.observation)#[:, :5])
     # [batch_size, num_actions]
     one_hot_prev_action = tf.one_hot(prev_action, self._num_actions)
     # [batch_size, torso_output_size]
@@ -270,7 +272,13 @@ class DuelingLSTMDQNNet(tf.Module):
         [conv_out, tf.expand_dims(env_output.reward, -1), one_hot_prev_action],
         axis=1)
 
-  def _head(self, core_output):
+  def _head(self, core_output, info=None):
+    """
+    Args:
+      core_output:
+      info: tuple(batch_size, channel, board_size, board_size)
+    
+    """
     # [batch_size, 1]
     value = self._value(core_output)
 
@@ -280,6 +288,17 @@ class DuelingLSTMDQNNet(tf.Module):
 
     # [batch_size, num_actions]
     q_values = value + advantage
+    assert len(info) == 1
+    info = info[0] # tuple => tensor
+    if info is not None:
+      possible_actions = info[:, 0]  # (batch, w, h)
+      # print('$$pa bef', possible_actions)
+      possible_actions = tf_possible_actions_2d_to_1d_onehot(possible_actions, board_size=len(possible_actions[0][0]))  # (batch, w*h)
+      # print('$$pa', possible_actions)
+      q_values = q_values * possible_actions
+      condition = tf.equal(q_values, 0)
+      impossible = tf.multiply(tf.ones(q_values.shape, tf.float32), -999999)
+      q_values = tf.where(condition, impossible, q_values)
 
     action = tf.cast(tf.argmax(q_values, axis=1), tf.int32)
     return AgentOutput(action, q_values)
@@ -305,6 +324,7 @@ class DuelingLSTMDQNNet(tf.Module):
             num_actions]. The time dimension is not present if unroll=False.
         - agent_state: Output AgentState with batched tensors.
     """
+    # print('$$$ call', input_[1].observation.shape)
     if not unroll:
       # Add time dimension.
       input_ = tf.nest.map_structure(lambda t: tf.expand_dims(t, 0),
@@ -317,6 +337,13 @@ class DuelingLSTMDQNNet(tf.Module):
 
     return outputs, agent_state
 
+  # def separate_obs_and_info(self, raw_obs):
+  #   obs = raw_obs[:, :, :5]
+  #   print('###obs', obs.shape)
+  #   raw_obs_copy = tf.identity(raw_obs)
+  #   possibles = raw_obs_copy[:, :, 5] 
+  #   return obs, possibles
+
   def _unroll(self, prev_actions, env_outputs, agent_state):
     # [time, batch_size, <field shape>]
     unused_reward, done, observation, _, _ = env_outputs
@@ -327,7 +354,14 @@ class DuelingLSTMDQNNet(tf.Module):
     stacked_frames, frame_state = stack_frames(
         observation, agent_state.frame_stacking_state, done, self._stack_size)
 
-    env_outputs = env_outputs._replace(observation=stacked_frames / 255)
+    # env_outputs = env_outputs._replace(observation=stacked_frames / 255)
+    env_outputs = env_outputs._replace(observation=stacked_frames)
+
+    # print(env_outputs.observation.shape)
+    obs, info = utils.separate_obs_and_info(env_outputs.observation)
+    # possibles = info[:, :, 0]
+    env_outputs = env_outputs._replace(observation=obs)
+
     # [time, batch_size, torso_output_size]
     torso_outputs = utils.batch_apply(self._torso, (prev_actions, env_outputs))
 
@@ -336,5 +370,7 @@ class DuelingLSTMDQNNet(tf.Module):
         initial_agent_state.core_state,
         self._core)
 
-    agent_output = utils.batch_apply(self._head, (core_outputs,))
+    # print('## core', core_outputs.shape, core_state.shape)
+
+    agent_output = utils.batch_apply(self._head, (core_outputs, info), with_info=True)
     return agent_output, AgentState(core_state, frame_state)

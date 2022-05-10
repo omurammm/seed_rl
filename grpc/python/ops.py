@@ -153,11 +153,20 @@ class Client(object):
       """Makes a call to the server."""
 
       flat_inputs = tf.nest.flatten(inputs)
-      flat_outputs = gen_grpc_ops.grpc_client_call(
-          fn_name=name,
-          handle=self._handle,
-          input_list=flat_inputs,
-          Toutput_list=flat_output_dtypes)
+      try:
+        flat_outputs = gen_grpc_ops.grpc_client_call(
+            fn_name=name,
+            handle=self._handle,
+            input_list=flat_inputs,
+            Toutput_list=flat_output_dtypes)
+      except:
+        import traceback
+        traceback.print_exc()
+        flat_outputs = gen_grpc_ops.grpc_client_call(
+            fn_name=name,
+            handle=self._handle,
+            input_list=flat_inputs,
+            Toutput_list=flat_output_dtypes)
       if output_specs is None:
         return None
       else:

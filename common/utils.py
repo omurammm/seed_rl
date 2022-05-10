@@ -711,7 +711,7 @@ class StructuredFIFOQueue(tf.queue.FIFOQueue):
         tf.nest.flatten(vals), name=name)
 
 
-def batch_apply(fn, inputs):
+def batch_apply(fn, inputs, with_info=False):
   """Folds time into the batch dimension, runs fn() and unfolds the result.
 
   Args:
@@ -724,9 +724,16 @@ def batch_apply(fn, inputs):
     tf.nest structure of [time, batch, <fn output shape>]. Structure is
     determined by the output of fn.
   """
-  time_to_batch_fn = lambda t: tf.reshape(t, [-1] + t.shape[2:].as_list())
-  batched = tf.nest.map_structure(time_to_batch_fn, inputs)
-  output = fn(*batched)
+  if with_info:
+    inputs, info = (inputs[0],), (inputs[1],)
+    time_to_batch_fn = lambda t: tf.reshape(t, [-1] + t.shape[2:].as_list())
+    batched = tf.nest.map_structure(time_to_batch_fn, inputs)
+    info = tf.nest.map_structure(time_to_batch_fn, info)
+    output = fn(*batched, info)
+  else:
+    time_to_batch_fn = lambda t: tf.reshape(t, [-1] + t.shape[2:].as_list())
+    batched = tf.nest.map_structure(time_to_batch_fn, inputs)
+    output = fn(*batched)
   prefix = [int(tf.nest.flatten(inputs)[0].shape[0]), -1]
   batch_to_time_fn = lambda t: tf.reshape(t, prefix + t.shape[1:].as_list())
   return tf.nest.map_structure(batch_to_time_fn, output)
@@ -1108,3 +1115,16 @@ def update_config(current_config, client):
       current_config[key] = value
   else:
     current_config = update
+
+
+def separate_obs_and_info(raw_obs):
+  """
+  Args:
+    (time, batch_size, channel, w, h)
+  Return:
+    (time, batch_size, 5, w, h), (time, batch_size, 2, w, h)
+  """
+  obs = raw_obs[:, :, :5]
+  raw_obs_copy = tf.identity(raw_obs)
+  possibles = raw_obs_copy[:, :, 5:] 
+  return obs, possibles

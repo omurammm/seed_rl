@@ -31,6 +31,7 @@ This contains all the features from R2D2
 import collections
 import concurrent.futures
 import math
+from multiprocessing.sharedctypes import Value
 import time
 
 from absl import flags
@@ -39,6 +40,8 @@ from seed_rl import grpc
 from seed_rl.common import common_flags  
 from seed_rl.common import utils
 import tensorflow as tf
+from util import tf_possible_actions_2d_to_1d_onehot, tf_choose_random_action
+
 
 physical_devices = tf.config.list_physical_devices('GPU')
 if len(physical_devices) > 0:
@@ -47,7 +50,6 @@ if len(physical_devices) > 0:
         print('{} memory growth: {}'.format(device, tf.config.experimental.get_memory_growth(device)))
 else:
     print("Not enough GPU hardware devices available")
-
 
 flags.DEFINE_integer('save_checkpoint_secs', 1800,
                      'Checkpoint save period in seconds.')
@@ -67,7 +69,7 @@ flags.DEFINE_integer('update_target_every_n_step',
                      2500,
                      'Update the target network at this frequency (expressed '
                      'in number of training steps)')
-flags.DEFINE_integer('replay_buffer_size', 100000,
+flags.DEFINE_integer('replay_buffer_size', 10000,
                      'Size of the replay buffer (in number of unrolls stored).')
 flags.DEFINE_integer('replay_buffer_min_size', 5000,
                      'Learning only starts when there is at least this number '
@@ -159,7 +161,7 @@ def get_envs_epsilon(env_ids, num_training_envs, num_eval_envs, eval_epsilon):
 
 
 def apply_epsilon_greedy(actions, env_ids, num_training_envs,
-                         num_eval_envs, eval_epsilon, num_actions):
+                         num_eval_envs, eval_epsilon, num_actions, possible_actions=None):
   """Epsilon-greedy: randomly replace actions with given probability.
 
   Args:
@@ -177,13 +179,47 @@ def apply_epsilon_greedy(actions, env_ids, num_training_envs,
     epsilon), the action is unchanged, where epsilon is chosen for each
     environment.
   """
-  batch_size = tf.shape(actions)[0]
-  epsilons = get_envs_epsilon(env_ids, num_training_envs, num_eval_envs,
-                              eval_epsilon)
-  random_actions = tf.random.uniform([batch_size], maxval=num_actions,
-                                     dtype=tf.int32)
-  probs = tf.random.uniform(shape=[batch_size])
-  return tf.where(tf.math.less(probs, epsilons), random_actions, actions)
+  if possible_actions is None:
+    batch_size = tf.shape(actions)[0]
+    epsilons = get_envs_epsilon(env_ids, num_training_envs, num_eval_envs,
+                                eval_epsilon)
+    random_actions = tf.random.uniform([batch_size], maxval=num_actions,
+                                      dtype=tf.int32)
+    probs = tf.random.uniform(shape=[batch_size])
+    return tf.where(tf.math.less(probs, epsilons), random_actions, actions)
+  else:
+    # (?, 2)
+    # batch_idx_and_action = tf.where(possible_actions == 1)
+    batch_size = len(actions)
+    epsilons = get_envs_epsilon(env_ids, num_training_envs, num_eval_envs,
+                                eval_epsilon)
+    # random_actions = []
+    # print('## random a', random_actions)                                  
+    # for possibles_onehot in possible_actions:
+    #   possible_idxs = tf.cast(tf.where(possibles_onehot == 1), tf.float32)
+    #   logit = possible_idxs * 0. + 1.
+    #   print(logit)
+    #   logit = tf.squeeze(logit, axis=[1])
+    #   logit = tf.expand_dims(logit, axis=0)
+    #   print(logit)
+    #   logit = tf.math.log(logit)
+    #   print(logit)
+    #   print(len(possible_idxs))
+    #   print('### idxs', possible_idxs)
+    #   action_idx =  tf.random.categorical(logit, 1)
+    #   action_idx = tf.squeeze(action_idx, axis=[0])
+    #   print(action_idx)
+    #   action = tf.gather(possible_idxs, action_idx)
+    #   action = tf.squeeze(action, axis=[0])
+    #   print(action)
+    #   random_actions.append(action)
+    random_actions = tf_choose_random_action(possible_actions)
+      
+      # possible_list[int(idx_and_action[0])].append(idx_and_action[1])
+    # random_actions = tf.stack(random_actions)
+    probs = tf.random.uniform(shape=[batch_size])
+    actions = tf.where(tf.math.less(probs, epsilons), random_actions, actions)
+    return actions
 
 
 def value_function_rescaling(x):
@@ -793,17 +829,39 @@ def learner_loop(create_env_fn, create_agent_fn, create_optimizer_fn, config=Non
         for i, inference_device in enumerate(inference_devices)
     })
 
+    # info (1, batch_size, 2, board_size, board_size)
+    _, info = utils.separate_obs_and_info(tf.expand_dims(env_outputs.observation, axis=0))
+    # possible_actions (1, batch_size, board_size, board_size)
+    possible_actions = info[:, :, 0]
+    # (batch_size, board_size**2)
+    possible_actions = tf_possible_actions_2d_to_1d_onehot(possible_actions[0], board_size=len(possible_actions[0][0]))
+
     agent_outputs = agent_outputs._replace(
         action=apply_epsilon_greedy(
             agent_outputs.action, env_ids,
             get_num_training_envs(),
-            FLAGS.num_eval_envs, FLAGS.eval_epsilon, num_actions))
+            FLAGS.num_eval_envs, FLAGS.eval_epsilon, num_actions, possible_actions=possible_actions))
 
     # Append the latest outputs to the unroll, only for experience coming from
     # training environments (IDs < num_training_envs), and insert completed
     # unrolls in queue.
     # <int64>[num_training_envs]
-    training_indices = tf.where(is_training_env(env_ids))[:, 0]
+    # training_indices = tf.where(is_training_env(env_ids))[:, 0]
+    print(len(env_ids))
+    print(is_training_env(env_ids))
+    # print('$$$ training_indices', training_indices.shape)
+    print('$$$ envoutput', env_outputs.observation.shape)
+
+    game_counts = info[0, :, 1, 0, 0]  # (batch_size,)
+    print('$$$ count', game_counts)
+    print('$$$ count cnd', game_counts%5==0)
+    # print(is_training_env(env_ids) and game_counts%5==0)
+    # cond = tf.math.logical_and(is_training_env(env_ids), game_counts % config['skip_game_interval'] == 0)
+    count_cond = (game_counts % config['skip_game_interval'] == 0) | ((game_counts - 1) == config['num_student_games'])
+    cond = is_training_env(env_ids) & count_cond
+    print('$$$ cond', cond)
+    training_indices = tf.where(cond)[:, 0]
+
     training_env_ids = tf.gather(env_ids, training_indices)
     training_prev_actions, training_env_outputs, training_agent_outputs = (
         tf.nest.map_structure(lambda s: tf.gather(s, training_indices),
